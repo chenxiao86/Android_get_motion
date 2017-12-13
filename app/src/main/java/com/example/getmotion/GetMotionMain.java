@@ -31,12 +31,14 @@ public class GetMotionMain extends AppCompatActivity {
     //控件参数
     private CheckBox checkBox;
     private Button button;
-    private TextView textView1, textView2, textView3, textView4;
+    public TextView textView1, textView2, textView3, textView4;
 
-    //传感器数据
+    //传感器数据、监听器
     private boolean[] mAvailable = new boolean[3];
     private Sensor[] mSensors = new Sensor[3];
-    public static int TYPE_ACC = 0, TYPE_ROT = 1, TYPE_MAG = 2, TYPE_GPS = 3, TYPE_CAM = 4;
+    public static final int TYPE_ACC = 0, TYPE_ROT = 1, TYPE_MAG = 2, TYPE_GPS = 3, TYPE_CAM = 4;
+    private static final int[] SENS_TYPES = {TYPE_ACC, TYPE_ROT, TYPE_MAG, TYPE_GPS, TYPE_CAM};
+    private SensorEventListenerNew[] listener = new SensorEventListenerNew[3];
 
     @RequiresApi(api = Build.VERSION_CODES.N)
     @Override
@@ -58,14 +60,17 @@ public class GetMotionMain extends AppCompatActivity {
         mSensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         List<Sensor> deviceSensors = mSensorManager.getSensorList(Sensor.TYPE_ALL);
 
-        //寻找设备
+
+
+
+        //设备列表，寻找设备
         for(int i = 0; i < deviceSensors.size(); i++) // 设备列表
-            Log.e("a", String.valueOf(deviceSensors.get(i)));
-        setSensor(TYPE_ACC);
-        setSensor(TYPE_ROT);
-        setSensor(TYPE_MAG);
+            Log.e("SENSOR", String.valueOf(deviceSensors.get(i)));
+        for (int SENS_TYPE = 0; SENS_TYPE<3; SENS_TYPE++)
+            setSensor(SENS_TYPE);
 
     }
+
 
 
 
@@ -80,6 +85,10 @@ public class GetMotionMain extends AppCompatActivity {
         int[] mTypes_u = {0x00000023/*未标定的加速度计*/, Sensor.TYPE_GYROSCOPE_UNCALIBRATED, Sensor.TYPE_MAGNETIC_FIELD_UNCALIBRATED};
         int[] mTypes = { Sensor.TYPE_ACCELEROMETER, Sensor.TYPE_GYROSCOPE, Sensor.TYPE_MAGNETIC_FIELD};
 
+        //初始化监听器
+        listener[SENSOR_NUM] = new SensorEventListenerNew();
+        listener[SENSOR_NUM].getPara(this, SENSOR_NUM);
+
         //设置控件
         TextView Obj_t = mTextHandles.get(SENSOR_NUM);
 
@@ -91,6 +100,7 @@ public class GetMotionMain extends AppCompatActivity {
             Log.i("收到：",mSensNames.get(SENSOR_NUM));
             mAvailable[SENSOR_NUM] = true;
             mSensors[SENSOR_NUM] = mSensorManager.getDefaultSensor(mTypes_u[SENSOR_NUM]);
+
 
         }
         else if (mSensorManager.getDefaultSensor(mTypes[SENSOR_NUM]) != null){
@@ -133,44 +143,77 @@ public class GetMotionMain extends AppCompatActivity {
         }
     }
 
+//    private class DownloadImageTask extends AsyncTask<int, Void, Void> {
+//        /** The system calls this to perform work in a worker thread and
+//         * delivers it the parameters given to AsyncTask.execute() */
+//        protected void doInBackground(int i) {
+//            return;
+//        }
+//
+//        /** The system calls this to perform work in the UI thread and delivers
+//         * the result from doInBackground() */
+//        protected void onPostExecute() {
+//            textView1.setText("a");
+//        }
+//    }
 
     public void startRecord(){
-        mSensorManager.registerListener(listenerACC, mSensors[TYPE_ACC], SensorManager.SENSOR_DELAY_GAME);
-        Log.i("start",listenerACC.toString());
+        for (int SENS_TYPE = 0; SENS_TYPE<3; SENS_TYPE++)
+            if(mAvailable[SENS_TYPE]) {
+                mSensorManager.registerListener(listener[SENS_TYPE], mSensors[SENS_TYPE], SensorManager.SENSOR_DELAY_GAME);
+            }
+        Log.i("start",listener[0].toString());
     }
 
     public void stopRecord(){
-        Log.e("Stop",listenerACC.toString());
-//        onDestroy();
-        mSensorManager.unregisterListener(listenerACC);
+        for (int SENS_TYPE = 0; SENS_TYPE<3; SENS_TYPE++)
+            if(mAvailable[SENS_TYPE]) mSensorManager.unregisterListener(listener[SENS_TYPE]);
     }
 
 
+}
 
-    private SensorEventListener listenerACC = new SensorEventListener() {
-        @Override
-        public void onSensorChanged(SensorEvent event) {
-            float X = event.values[0];
-            float Y = event.values[1];
-            float Z = event.values[2];
-            textView1.setText(String.format(Locale.CHINESE, "加速度：%0$.2f, %0$.2f, %0$.2f", X, Y, Z));
-        }
-
-        @Override
-        public void onAccuracyChanged(Sensor mSensor, int accuracy) {
-
-        }
-
-    };
+//传感器设备的监听，可用于所有传感器
+class SensorEventListenerNew implements SensorEventListener {
 
     @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (mSensorManager != null) {
-//            mSensorManager.unregisterListener(listenerACC);
-//            mSensorManager.unregisterListener(listenerROT);
-//            mSensorManager.unregisterListener(listenerMAG);
+    public void onSensorChanged(SensorEvent event) {
+        float X = event.values[0];
+        float Y = event.values[1];
+        float Z = event.values[2];
+        mTextView.setText(String.format(Locale.CHINESE, textShow, X, Y, Z));
+//        Log.i("数据","正常");
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor mSensor, int accuracy) {
+
+    }
+
+    private String textShow;
+    private TextView mTextView;
+
+    public void getPara(GetMotionMain _father, int SENS_TYPE){
+
+        father = _father;
+
+        switch (SENS_TYPE) {
+            case GetMotionMain.TYPE_ACC:
+                mTextView = father.textView1;
+                textShow = "加速度：%0$.2f, %0$.2f, %0$.2f";
+                break;
+            case GetMotionMain.TYPE_ROT:
+                mTextView = father.textView2;
+                textShow = "角速度：%0$.2f, %0$.2f, %0$.2f";
+                break;
+            case GetMotionMain.TYPE_MAG:
+                mTextView = father.textView3;
+                textShow = "磁场：%0$.2f, %0$.2f, %0$.2f";
+                break;
+
         }
     }
+
+    private GetMotionMain father;
 
 }
