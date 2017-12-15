@@ -31,6 +31,7 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.media.Image;
 import android.media.ImageReader;
+import android.media.MediaRecorder;
 import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
@@ -52,7 +53,10 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -107,11 +111,12 @@ public class GetMotionMain extends AppCompatActivity {
     private ImageReader mImageReader;
     private CameraCaptureSession mCameraCaptureSession;
     private CameraDevice mCameraDevice;
+    private int Dbg = 0;
 
 
     //文件读写
     private File[] sensData = new File[5];
-    private File rootFolder, dataRootFolder; //本项目文件夹，本次记录文件夹
+    private File rootFolder, dataRootFolder, dataRootFolderPics; //本项目文件夹，本次记录文件夹
     public FileWriter[] mFileWriter = new FileWriter[5];
     private static final int REQUEST_EXTERNAL_STORAGE = 1;
     private boolean[] mAvailable = new boolean[5];
@@ -312,26 +317,43 @@ public class GetMotionMain extends AppCompatActivity {
         mainHandler = new Handler(getMainLooper());
         mCameraID = "" + CameraCharacteristics.LENS_FACING_FRONT;//后摄像头
 
-        mImageReader = ImageReader.newInstance(480, 640, ImageFormat.JPEG,1);
+        mImageReader = ImageReader.newInstance(480, 640, ImageFormat.JPEG,2);//最后面的10是最大的Buffer数量。
         mImageReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() { //可以在这里处理拍照得到的临时照片 例如，写入本地
             @Override
             public void onImageAvailable(ImageReader reader) {
-                // 拿到拍照照片数据
-                Log.i("获取图片","怎么回事");
-                mCameraDevice.close();
-                Image image = reader.acquireNextImage();
-                ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-                byte[] bytes = new byte[buffer.remaining()];
-                buffer.get(bytes);//由缓冲区存入字节数组
-                final Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                if (bitmap != null) {
-                    Log.i("获取图片","应该成功了");
+//                 拿到拍照照片数据
+
+
+                if (!SYS_STATE) return;
+
+                Log.e("文件夹在不在", String.valueOf(dataRootFolderPics.exists()));
+                if (dataRootFolderPics.exists()) {
+                    Image image = reader.acquireNextImage();
+                    Log.i("图像时间戳", String.valueOf(image.getTimestamp()));
+                    ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+                    byte[] bytes = new byte[buffer.remaining()];
+                    buffer.get(bytes);//由缓冲区存入字节数组
+                    final Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                    if (bitmap != null) {
+                        File picFile = new File(dataRootFolderPics, String.valueOf(image.getTimestamp() + ".jpg"));
+                        try {
+                            BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(picFile));
+                            bos.write(bytes, 0, bytes.length);
+                            bos.flush();
+                            bos.close();
+                        } catch (FileNotFoundException e) {
+                            e.printStackTrace();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+
+                    }
+                    image.close();
                 }
-                try {
-                    Thread.sleep(20);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
+
+
+
+
             }
         }, childHandler);
 
@@ -367,12 +389,12 @@ public class GetMotionMain extends AppCompatActivity {
                 GetMotionMain.this.mCameraDevice = null;
             }
         }
-
         @Override
         public void onError(CameraDevice camera, int error) {//发生错误
             Toast.makeText(GetMotionMain.this, "摄像头开启失败", Toast.LENGTH_SHORT).show();
         }
     };
+
 
     //开始预览
     private void takePreview() {
@@ -381,9 +403,9 @@ public class GetMotionMain extends AppCompatActivity {
             final CaptureRequest.Builder previewRequestBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             // 将SurfaceView的surface作为CaptureRequest.Builder的目标
             previewRequestBuilder.addTarget(mSurfaceHolder.getSurface());
-//            previewRequestBuilder.addTarget(mImageReader.getSurface());
+            previewRequestBuilder.addTarget(mImageReader.getSurface());
             // 创建CameraCaptureSession，该对象负责管理处理预览请求和拍照请求
-            mCameraDevice.createCaptureSession(Arrays.asList(mSurfaceHolder.getSurface()/*,mImageReader.getSurface()*/), new CameraCaptureSession.StateCallback() // ③
+            mCameraDevice.createCaptureSession(Arrays.asList(mSurfaceHolder.getSurface(),mImageReader.getSurface()), new CameraCaptureSession.StateCallback() // ③
             {
                 @Override
                 public void onConfigured(CameraCaptureSession cameraCaptureSession) {
@@ -394,7 +416,7 @@ public class GetMotionMain extends AppCompatActivity {
                         //previewRequestBuilder.get();
                         // 对焦无穷远
                         previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
-                        previewRequestBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f);
+                        previewRequestBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.05f);
                         //关闭自动稳像
                         previewRequestBuilder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF);
                         // 关闭闪光灯
@@ -402,12 +424,11 @@ public class GetMotionMain extends AppCompatActivity {
                         // 帧频
                         Range<Integer> fpsRange = previewRequestBuilder.get(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE);
                         Log.i("帧频",fpsRange.toString());
-//                        previewRequestBuilder.set(CaptureRequest.anzhuo , 30);
 
                         // 显示预览
                         CaptureRequest previewRequest = previewRequestBuilder.build();
-                        mCameraCaptureSession.setRepeatingRequest(previewRequest, null/*new mCaptureCallback()*/, childHandler);
-//                        mCameraCaptureSession.capture(previewRequest, null/*new mCaptureCallback()*/, childHandler);
+                        mCameraCaptureSession.setRepeatingRequest(previewRequest, null /*new mCaptureCallback()*/, childHandler);
+
                     } catch (CameraAccessException e) {
                         e.printStackTrace();
                     }
@@ -426,13 +447,9 @@ public class GetMotionMain extends AppCompatActivity {
 //    class mCaptureCallback extends CameraCaptureSession.CaptureCallback {
 //        @Override
 //        public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result){
-//            Log.i("接收的信息", String.valueOf(result.getKeys()));
+////            Log.i("接收的信息", String.valueOf(result.getKeys()));
 //            Log.i("时间", String.valueOf(result.get(TotalCaptureResult.SENSOR_TIMESTAMP)));
-//            Log.i("RS时间", String.valueOf(result.get(TotalCaptureResult.SENSOR_ROLLING_SHUTTER_SKEW)));
-//            Log.i("相机","取得图像");
-//            session.capture(); //可能得这么建立了。要看看这个CameraCaptureSession.CaptureCallback到底是什么！？
-//            captureStillPicture
-//            mImageReader.getSurface()
+////            Log.i("RS时间", String.valueOf(result.get(TotalCaptureResult.SENSOR_ROLLING_SHUTTER_SKEW)));
 //        }
 //    }
 
@@ -637,10 +654,17 @@ public class GetMotionMain extends AppCompatActivity {
         else{
             //如果没运行，再按就开始，先建立文件夹
             dataRootFolder = new File(rootFolder, dayTime);
+            dataRootFolderPics = new File(dataRootFolder, "Cam");
 
             if (dataRootFolder.mkdirs()) {
-                Log.i("文件夹", "成功创建");
-                startRecord();
+                if (dataRootFolderPics.mkdirs()) {
+                    Log.i("文件夹", "成功创建");
+                    startRecord();
+                }
+                else
+                {
+                    Toast.makeText(this, "创建文件夹失败", Toast.LENGTH_LONG).show();
+                }
             }
             else {
                 Log.e("文件夹", "创建失败");
