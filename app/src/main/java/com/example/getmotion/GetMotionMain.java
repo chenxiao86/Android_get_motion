@@ -12,6 +12,8 @@ import android.graphics.BitmapFactory;
 import android.graphics.Camera;
 import android.graphics.Color;
 import android.graphics.ImageFormat;
+import android.graphics.Rect;
+import android.graphics.YuvImage;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -59,6 +61,7 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.sql.Time;
 import java.text.DateFormat;
@@ -106,12 +109,13 @@ public class GetMotionMain extends AppCompatActivity {
     private SurfaceHolder mSurfaceHolder;
     private ImageView iv_show;
     private CameraManager mCameraManager;//摄像头管理器
-    private Handler childHandler, mainHandler;
+    private Handler childHandler, childHandler2, mainHandler;
     private String mCameraID;//摄像头Id 0 为后  1 为前
     private ImageReader mImageReader;
     private CameraCaptureSession mCameraCaptureSession;
     private CameraDevice mCameraDevice;
     private int Dbg = 0;
+    private CaptureRequest mPreviewRequest;
 
 
     //文件读写
@@ -283,7 +287,11 @@ public class GetMotionMain extends AppCompatActivity {
         mSurfaceView = (SurfaceView) findViewById(R.id.surfaceView);
         mSurfaceHolder = mSurfaceView.getHolder();
         mSurfaceHolder.setKeepScreenOn(true);
-        // mSurfaceView添加回调
+//        if (null != mCameraDevice) {
+//            mCameraDevice.close();
+//            GetMotionMain.this.mCameraDevice = null;}
+//        initCamera2();
+//         mSurfaceView添加回调
         mSurfaceHolder.addCallback(new SurfaceHolder.Callback() {
             @Override
             public void surfaceCreated(SurfaceHolder holder) { //SurfaceView创建
@@ -314,28 +322,33 @@ public class GetMotionMain extends AppCompatActivity {
         HandlerThread handlerThread = new HandlerThread("Camera2");
         handlerThread.start();
         childHandler = new Handler(handlerThread.getLooper());
+
+        HandlerThread handlerThread2 = new HandlerThread("Camera3");
+        handlerThread2.start();
+        childHandler2 = new Handler(handlerThread2.getLooper());
+
         mainHandler = new Handler(getMainLooper());
         mCameraID = "" + CameraCharacteristics.LENS_FACING_FRONT;//后摄像头
 
-        mImageReader = ImageReader.newInstance(480, 640, ImageFormat.JPEG,2);//最后面的10是最大的Buffer数量。
+        mImageReader = ImageReader.newInstance(640, 480, ImageFormat.YUV_420_888,1);//最后面的10是最大的Buffer数量。
         mImageReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() { //可以在这里处理拍照得到的临时照片 例如，写入本地
             @Override
             public void onImageAvailable(ImageReader reader) {
 //                 拿到拍照照片数据
+                Thread a = Thread.currentThread();
+                Log.i("IR的线程", String.valueOf(a.getId()));
 
-
-                if (!SYS_STATE) return;
-
-                Log.e("文件夹在不在", String.valueOf(dataRootFolderPics.exists()));
-                if (dataRootFolderPics.exists()) {
+                Log.e("文件夹在不在", String.valueOf(rootFolder.exists()));
+                if (rootFolder.exists()) {
                     Image image = reader.acquireNextImage();
                     Log.i("图像时间戳", String.valueOf(image.getTimestamp()));
                     ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+
                     byte[] bytes = new byte[buffer.remaining()];
                     buffer.get(bytes);//由缓冲区存入字节数组
-                    final Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                    if (bitmap != null) {
-                        File picFile = new File(dataRootFolderPics, String.valueOf(image.getTimestamp() + ".jpg"));
+
+                    if (bytes != null) {
+                        File picFile = new File(rootFolder, String.valueOf(image.getTimestamp() + ".jpg"));
                         try {
                             BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(picFile));
                             bos.write(bytes, 0, bytes.length);
@@ -365,8 +378,17 @@ public class GetMotionMain extends AppCompatActivity {
             }
             //打开摄像头
             mCameraManager.openCamera(mCameraID, stateCallback, mainHandler);
-//            CameraCharacteristics mCC = mCameraManager.getCameraCharacteristics(mCameraID);
-//            float[] a = mCC.get(CameraCharacteristics.LENS_INTRINSIC_CALIBRATION);
+            CameraCharacteristics mCC = mCameraManager.getCameraCharacteristics(mCameraID);
+            Float a = mCC.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
+            List<CameraCharacteristics.Key<?>> aa = mCC.getKeys();
+            for (int i = 0; i < aa.size(); i++)
+            {
+
+                Log.e(aa.get(i).getName(), mCC.get(aa.get(i)).toString());
+                Object cc = mCC.get(aa.get(i));
+                Log.e("e",cc.toString());
+            }
+
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
@@ -400,12 +422,12 @@ public class GetMotionMain extends AppCompatActivity {
     private void takePreview() {
         try {
             // 创建预览需要的CaptureRequest.Builder
-            final CaptureRequest.Builder previewRequestBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            final CaptureRequest.Builder previewRequestBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
             // 将SurfaceView的surface作为CaptureRequest.Builder的目标
-            previewRequestBuilder.addTarget(mSurfaceHolder.getSurface());
             previewRequestBuilder.addTarget(mImageReader.getSurface());
+            previewRequestBuilder.addTarget(mSurfaceHolder.getSurface());
             // 创建CameraCaptureSession，该对象负责管理处理预览请求和拍照请求
-            mCameraDevice.createCaptureSession(Arrays.asList(mSurfaceHolder.getSurface(),mImageReader.getSurface()), new CameraCaptureSession.StateCallback() // ③
+            mCameraDevice.createCaptureSession(Arrays.asList(mImageReader.getSurface(),mSurfaceHolder.getSurface()), new CameraCaptureSession.StateCallback() // ③
             {
                 @Override
                 public void onConfigured(CameraCaptureSession cameraCaptureSession) {
@@ -413,21 +435,21 @@ public class GetMotionMain extends AppCompatActivity {
                     // 当摄像头已经准备好时，开始显示预览
                     mCameraCaptureSession = cameraCaptureSession;
                     try {
-                        //previewRequestBuilder.get();
-                        // 对焦无穷远
-                        previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
-                        previewRequestBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.05f);
-                        //关闭自动稳像
-                        previewRequestBuilder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF);
                         // 关闭闪光灯
                         previewRequestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
+                        // 对焦无穷远
+                        previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
+                        previewRequestBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.5f);
+                        previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_STATE_FOCUSED_LOCKED);
+                        //关闭自动稳像
+                        previewRequestBuilder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF);
                         // 帧频
                         Range<Integer> fpsRange = previewRequestBuilder.get(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE);
                         Log.i("帧频",fpsRange.toString());
 
                         // 显示预览
                         CaptureRequest previewRequest = previewRequestBuilder.build();
-                        mCameraCaptureSession.setRepeatingRequest(previewRequest, null /*new mCaptureCallback()*/, childHandler);
+                        mCameraCaptureSession.setRepeatingRequest(previewRequest, new mCaptureCallback(), childHandler);
 
                     } catch (CameraAccessException e) {
                         e.printStackTrace();
@@ -444,14 +466,18 @@ public class GetMotionMain extends AppCompatActivity {
         }
     }
 //
-//    class mCaptureCallback extends CameraCaptureSession.CaptureCallback {
-//        @Override
-//        public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result){
-////            Log.i("接收的信息", String.valueOf(result.getKeys()));
-//            Log.i("时间", String.valueOf(result.get(TotalCaptureResult.SENSOR_TIMESTAMP)));
-////            Log.i("RS时间", String.valueOf(result.get(TotalCaptureResult.SENSOR_ROLLING_SHUTTER_SKEW)));
-//        }
-//    }
+    class mCaptureCallback extends CameraCaptureSession.CaptureCallback {
+        @Override
+        public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result){
+            Log.i("时间", String.valueOf(result.get(TotalCaptureResult.SENSOR_TIMESTAMP)));
+            Log.i("SB", request.get(CaptureRequest.CONTROL_AF_MODE).toString());
+            Log.e("SB", request.get(CaptureRequest.LENS_FOCUS_DISTANCE).toString());
+
+//            Thread a = Thread.currentThread();
+//            Log.i("的线程", String.valueOf(a.getId()));
+//            Log.i("RS时间", String.valueOf(result.get(TotalCaptureResult.SENSOR_ROLLING_SHUTTER_SKEW)));
+        }
+    }
 
     ///相机部分++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
 
