@@ -38,6 +38,7 @@ import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.support.annotation.NonNull;
 import android.support.annotation.RequiresApi;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AlertDialog;
@@ -77,15 +78,16 @@ public class GetMotionMain extends AppCompatActivity {
     ///参数部分++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
     public static boolean SYS_STATE = false; //系统状态
     private SensorManager mSensorManager; //设备管理器
+    private Context mContext;
 
     //权限
     private static String[] PERMISSIONS_EVERY = {
-            "android.permission.READ_EXTERNAL_STORAGE",
-            "android.permission.WRITE_EXTERNAL_STORAGE",
-            "android.permission.CAMERA",
-            "android.permission.ACCESS_FINE_LOCATION",
-            "android.permission.ACCESS_COURSE_LOCATION",
-            "android.hardware.location.gps"
+            Manifest.permission.READ_EXTERNAL_STORAGE,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            Manifest.permission.CAMERA,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+//            Manifest.permission.ACCESS_COURSE_LOCATION,
+//            Manifest.permission.location.gps
     };
 
     //控件参数
@@ -107,14 +109,12 @@ public class GetMotionMain extends AppCompatActivity {
     //相机
     private SurfaceView mSurfaceView;
     private SurfaceHolder mSurfaceHolder;
-    private ImageView iv_show;
     private CameraManager mCameraManager;//摄像头管理器
     private Handler childHandler, childHandler2, mainHandler;
     private String mCameraID;//摄像头Id 0 为后  1 为前
     private ImageReader mImageReader;
     private CameraCaptureSession mCameraCaptureSession;
     private CameraDevice mCameraDevice;
-    private int Dbg = 0;
     private CaptureRequest mPreviewRequest;
 
 
@@ -122,7 +122,6 @@ public class GetMotionMain extends AppCompatActivity {
     private File[] sensData = new File[5];
     private File rootFolder, dataRootFolder, dataRootFolderPics; //本项目文件夹，本次记录文件夹
     public FileWriter[] mFileWriter = new FileWriter[5];
-    private static final int REQUEST_EXTERNAL_STORAGE = 1;
     private boolean[] mAvailable = new boolean[5];
 
     //时间参数
@@ -140,14 +139,13 @@ public class GetMotionMain extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_get_motion_main);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE); //只许横屏
-        Context mContext = getApplicationContext(); //得到context
+        mContext = getApplicationContext(); //得到context
 
         //获取屏幕信息
         int mCurrentOrientation = getResources().getConfiguration().orientation;
 
         if (mCurrentOrientation == Configuration.ORIENTATION_PORTRAIT) {
             Log.i("info", "portrait"); // 竖屏
-//            return;
 
         } else if (mCurrentOrientation == Configuration.ORIENTATION_LANDSCAPE) {
             Log.i("info", "landscape"); // 横屏
@@ -157,91 +155,27 @@ public class GetMotionMain extends AppCompatActivity {
         getWindow().addFlags(WindowManager.LayoutParams.
                 FLAG_KEEP_SCREEN_ON);   //应用运行时，保持屏幕高亮，不锁屏
 
+        //管理授权
+        permissionsCheck();
 
         //取得控件
-        checkBox = (CheckBox) findViewById(R.id.checkBox);
-        button = (Button) findViewById(R.id.button);
-        textView1 = (TextView) findViewById(R.id.textView1);
-        textView2 = (TextView) findViewById(R.id.textView2);
-        textView3 = (TextView) findViewById(R.id.textView3);
-        textView4 = (TextView) findViewById(R.id.textView4);
+        initTools();
 
+        //储存位置
+        initStorage();
 
         //定义设备管理器
-        mSensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        List<Sensor> deviceSensors = mSensorManager.getSensorList(Sensor.TYPE_ALL);
-        //设备列表，寻找设备
-        for (int i = 0; i < deviceSensors.size(); i++) // 设备列表
-            Log.e("SENSOR", String.valueOf(deviceSensors.get(i)));
-        for (int SENS_TYPE = 0; SENS_TYPE < 3; SENS_TYPE++)
-            setSensor(SENS_TYPE);
-        Log.i("主线程", String.valueOf(Thread.currentThread().getId()));
+        initSensors();
 
-        //GPS动态权限
-        try {
-            //检测是否有写的权限
-            int permission3 = ActivityCompat.checkSelfPermission(this,
-                    "android.permission.ACCESS_FINE_LOCATION");
-            int permission4 = ActivityCompat.checkSelfPermission(this,
-                    "android.permission.ACCESS_COARSE_LOCATION");
-            int permission5 = ActivityCompat.checkSelfPermission(this,
-                    "android.hardware.location.gps");
-            if (permission3 != PackageManager.PERMISSION_GRANTED ||
-                    permission4 != PackageManager.PERMISSION_GRANTED ||
-                    permission5 != PackageManager.PERMISSION_GRANTED) {
-                // 没有写的权限，去申请写的权限，会弹出对话框
-                ActivityCompat.requestPermissions(this, PERMISSIONS_EVERY, 3);
-                ActivityCompat.requestPermissions(this, PERMISSIONS_EVERY, 4);
-                ActivityCompat.requestPermissions(this, PERMISSIONS_EVERY, 5);
-                mAvailable[TYPE_GPS] = true;
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
         //GPS信号监听
-        String locationProvider = LocationManager.GPS_PROVIDER;
-        mLocationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
-        mLocationListener = new LocationListenerNew();
-        mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER,
-                0, 0, mLocationListener);
-        //尝试收听GNSS状态。成功，还可以收听Measurement和Navigation的数据。
-        //mLocationManager.registerGnssStatusCallback(new GSCnew());
+        initGPS();
 
         //相机设置
-        initVIew();
-
-        //查看储存器是否可用，先看外部
-        if (Environment.MEDIA_MOUNTED.equals(Environment.getExternalStorageState())) {
-            //获得外存绝对地址+我们自己的地址
-            String targetDir = Environment.getExternalStorageDirectory().getAbsolutePath() + File.separator + "MotionRecord";
-            rootFolder = new File(targetDir);
-            //创建文件夹
-            if (!rootFolder.exists())
-                rootFolder.mkdirs();
-            Log.e("文件夹", "外部");
-        } else {
-            //创建内部存储地址
-            rootFolder = new File(mContext.getFilesDir(), "MotionRecord");
-            if (!rootFolder.exists())
-                rootFolder.mkdirs();
-            Log.e("文件夹", "内部");
-        }
-        //权限问题
-        try {
-            //检测是否有写的权限
-            int permission = ActivityCompat.checkSelfPermission(this,
-                    "android.permission.WRITE_EXTERNAL_STORAGE");
-            if (permission != PackageManager.PERMISSION_GRANTED) {
-                // 没有写的权限，去申请写的权限，会弹出对话框
-                ActivityCompat.requestPermissions(this, PERMISSIONS_EVERY, REQUEST_EXTERNAL_STORAGE);
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        Log.e("文件夹", rootFolder.getAbsolutePath());
-        Toast.makeText(this, "目标将要保存于：" + rootFolder.getAbsolutePath(), Toast.LENGTH_LONG).show();
+        initCamera();
 
     }
+
+
 
     @Override
     public void onConfigurationChanged(Configuration config) {
@@ -275,23 +209,14 @@ public class GetMotionMain extends AppCompatActivity {
     ///相机部分++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
 
     /**********************************************************************************/
-    private void initVIew() {
-        int permission = ActivityCompat.checkSelfPermission(this,
-                "android.permission.CAMERA");
-        if (permission != PackageManager.PERMISSION_GRANTED) {
-            // 没有写的权限，去申请写的权限，会弹出对话框
-            ActivityCompat.requestPermissions(this, PERMISSIONS_EVERY, 2);
-            mAvailable[TYPE_CAM] = true;
-        }
+    private void initCamera() {
+
         //mSurfaceView
         mSurfaceView = (SurfaceView) findViewById(R.id.surfaceView);
         mSurfaceHolder = mSurfaceView.getHolder();
         mSurfaceHolder.setKeepScreenOn(true);
-//        if (null != mCameraDevice) {
-//            mCameraDevice.close();
-//            GetMotionMain.this.mCameraDevice = null;}
-//        initCamera2();
-//         mSurfaceView添加回调
+
+        //mSurfaceView添加回调，预览
         mSurfaceHolder.addCallback(new SurfaceHolder.Callback() {
             @Override
             public void surfaceCreated(SurfaceHolder holder) { //SurfaceView创建
@@ -301,7 +226,6 @@ public class GetMotionMain extends AppCompatActivity {
 
             @Override
             public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-//                Log.e("数据来了","？");
             }
 
             @Override
@@ -319,6 +243,7 @@ public class GetMotionMain extends AppCompatActivity {
     @TargetApi(Build.VERSION_CODES.M)
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     private void initCamera2() {
+
         HandlerThread handlerThread = new HandlerThread("Camera2");
         handlerThread.start();
         childHandler = new Handler(handlerThread.getLooper());
@@ -329,46 +254,8 @@ public class GetMotionMain extends AppCompatActivity {
 
         mainHandler = new Handler(getMainLooper());
         mCameraID = "" + CameraCharacteristics.LENS_FACING_FRONT;//后摄像头
+//        mCameraID = "" + CameraCharacteristics.LENS_FACING_BACK;//前摄像头
 
-        mImageReader = ImageReader.newInstance(640, 480, ImageFormat.YUV_420_888,1);//最后面的10是最大的Buffer数量。
-        mImageReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() { //可以在这里处理拍照得到的临时照片 例如，写入本地
-            @Override
-            public void onImageAvailable(ImageReader reader) {
-//                 拿到拍照照片数据
-                Thread a = Thread.currentThread();
-                Log.i("IR的线程", String.valueOf(a.getId()));
-
-                Log.e("文件夹在不在", String.valueOf(rootFolder.exists()));
-                if (rootFolder.exists()) {
-                    Image image = reader.acquireNextImage();
-                    Log.i("图像时间戳", String.valueOf(image.getTimestamp()));
-                    ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-
-                    byte[] bytes = new byte[buffer.remaining()];
-                    buffer.get(bytes);//由缓冲区存入字节数组
-
-                    if (bytes != null) {
-                        File picFile = new File(rootFolder, String.valueOf(image.getTimestamp() + ".jpg"));
-                        try {
-                            BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(picFile));
-                            bos.write(bytes, 0, bytes.length);
-                            bos.flush();
-                            bos.close();
-                        } catch (FileNotFoundException e) {
-                            e.printStackTrace();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-
-                    }
-                    image.close();
-                }
-
-
-
-
-            }
-        }, childHandler);
 
         //获取摄像头管理
         mCameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
@@ -378,16 +265,6 @@ public class GetMotionMain extends AppCompatActivity {
             }
             //打开摄像头
             mCameraManager.openCamera(mCameraID, stateCallback, mainHandler);
-            CameraCharacteristics mCC = mCameraManager.getCameraCharacteristics(mCameraID);
-            Float a = mCC.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
-            List<CameraCharacteristics.Key<?>> aa = mCC.getKeys();
-            for (int i = 0; i < aa.size(); i++)
-            {
-
-                Log.e(aa.get(i).getName(), mCC.get(aa.get(i)).toString());
-                Object cc = mCC.get(aa.get(i));
-                Log.e("e",cc.toString());
-            }
 
         } catch (CameraAccessException e) {
             e.printStackTrace();
@@ -424,10 +301,9 @@ public class GetMotionMain extends AppCompatActivity {
             // 创建预览需要的CaptureRequest.Builder
             final CaptureRequest.Builder previewRequestBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
             // 将SurfaceView的surface作为CaptureRequest.Builder的目标
-            previewRequestBuilder.addTarget(mImageReader.getSurface());
             previewRequestBuilder.addTarget(mSurfaceHolder.getSurface());
             // 创建CameraCaptureSession，该对象负责管理处理预览请求和拍照请求
-            mCameraDevice.createCaptureSession(Arrays.asList(mImageReader.getSurface(),mSurfaceHolder.getSurface()), new CameraCaptureSession.StateCallback() // ③
+            mCameraDevice.createCaptureSession(Arrays.asList(mSurfaceHolder.getSurface()), new CameraCaptureSession.StateCallback() // ③
             {
                 @Override
                 public void onConfigured(CameraCaptureSession cameraCaptureSession) {
@@ -438,17 +314,14 @@ public class GetMotionMain extends AppCompatActivity {
                         // 关闭闪光灯
                         previewRequestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
                         // 对焦无穷远
-                        previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
-                        previewRequestBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.5f);
-                        previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_STATE_FOCUSED_LOCKED);
+                        previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_EDOF);
                         //关闭自动稳像
-                        previewRequestBuilder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF);
-                        // 帧频
-                        Range<Integer> fpsRange = previewRequestBuilder.get(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE);
-                        Log.i("帧频",fpsRange.toString());
-
-                        // 显示预览
+                        previewRequestBuilder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF);
+                        previewRequestBuilder.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF);
+                        // 生成设置
                         CaptureRequest previewRequest = previewRequestBuilder.build();
+
+                        ///循环采集图像并且预览。
                         mCameraCaptureSession.setRepeatingRequest(previewRequest, new mCaptureCallback(), childHandler);
 
                     } catch (CameraAccessException e) {
@@ -470,9 +343,6 @@ public class GetMotionMain extends AppCompatActivity {
         @Override
         public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result){
             Log.i("时间", String.valueOf(result.get(TotalCaptureResult.SENSOR_TIMESTAMP)));
-            Log.i("SB", request.get(CaptureRequest.CONTROL_AF_MODE).toString());
-            Log.e("SB", request.get(CaptureRequest.LENS_FOCUS_DISTANCE).toString());
-
 //            Thread a = Thread.currentThread();
 //            Log.i("的线程", String.valueOf(a.getId()));
 //            Log.i("RS时间", String.valueOf(result.get(TotalCaptureResult.SENSOR_ROLLING_SHUTTER_SKEW)));
@@ -486,6 +356,17 @@ public class GetMotionMain extends AppCompatActivity {
     /**********************************************************************************/
     ///GPS部分++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
     /**********************************************************************************/
+
+    private void initGPS() {
+        mLocationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        mLocationListener = new LocationListenerNew();
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER,
+                0, 0, mLocationListener);
+    }
+
     class LocationListenerNew implements LocationListener {
 
         @Override
@@ -538,16 +419,6 @@ public class GetMotionMain extends AppCompatActivity {
         }
     }
 
-    //GNSS监听器
-    @RequiresApi(api = Build.VERSION_CODES.N)
-    class GSCnew extends GnssStatus.Callback {
-        @Override
-        public void onSatelliteStatusChanged(GnssStatus status){
-            int satNum = status.getSatelliteCount();
-            textView4.setText(String.format("卫星数量%d", satNum));
-        }
-
-    }
 
     ///GPS部分++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
 
@@ -555,6 +426,19 @@ public class GetMotionMain extends AppCompatActivity {
     /**********************************************************************************/
     ///传感器部分++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
     /**********************************************************************************/
+
+    //初始化传感器
+    private void initSensors() {
+        mSensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        List<Sensor> deviceSensors = mSensorManager.getSensorList(Sensor.TYPE_ALL);
+        //设备列表，寻找设备
+        for (int i = 0; i < deviceSensors.size(); i++) // 设备列表
+            Log.e("SENSOR", String.valueOf(deviceSensors.get(i)));
+        for (int SENS_TYPE = 0; SENS_TYPE < 3; SENS_TYPE++)
+            setSensor(SENS_TYPE);
+        Log.i("主线程", String.valueOf(Thread.currentThread().getId()));
+    }
+
     //判断并且设置传感器
     private void setSensor(int SENSOR_NUM)
     {
@@ -563,7 +447,7 @@ public class GetMotionMain extends AppCompatActivity {
         //设置传感器可能的参数
         List<String> mSensNames = Arrays.asList("加速度计", "陀螺仪","磁场计");
         List<TextView> mTextHandles = Arrays.asList(textView1, textView2, textView3);
-        int[] mTypes_u = {0x00000023/*未标定的加速度计*/, Sensor.TYPE_GYROSCOPE_UNCALIBRATED, Sensor.TYPE_MAGNETIC_FIELD_UNCALIBRATED};
+        int[] mTypes_u = {0x00000023/*未标定的加速度计*/, Sensor.TYPE_GYROSCOPE_UNCALIBRATED, Sensor.TYPE_MAGNETIC_FIELD};
         int[] mTypes = { Sensor.TYPE_ACCELEROMETER, Sensor.TYPE_GYROSCOPE, Sensor.TYPE_MAGNETIC_FIELD};
 
         //初始化监听器
@@ -661,6 +545,17 @@ public class GetMotionMain extends AppCompatActivity {
     /**********************************************************************************/
     ///控件部分++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
     /**********************************************************************************/
+    //初始化控件
+    private void initTools(){
+        //取得控件
+        checkBox = (CheckBox) findViewById(R.id.checkBox);
+        button = (Button) findViewById(R.id.button);
+        textView1 = (TextView) findViewById(R.id.textView1);
+        textView2 = (TextView) findViewById(R.id.textView2);
+        textView3 = (TextView) findViewById(R.id.textView3);
+        textView4 = (TextView) findViewById(R.id.textView4);
+    }
+
     // 按钮回调函数
     public void ctrlRecord(View view) {
 
@@ -686,6 +581,9 @@ public class GetMotionMain extends AppCompatActivity {
                 if (dataRootFolderPics.mkdirs()) {
                     Log.i("文件夹", "成功创建");
                     startRecord();
+                    checkBox.setClickable(false);
+                    button.setText("结束");
+                    SYS_STATE = true;
                 }
                 else
                 {
@@ -697,9 +595,6 @@ public class GetMotionMain extends AppCompatActivity {
                 Toast.makeText(this, "创建文件夹失败", Toast.LENGTH_LONG).show();
             }
 
-            checkBox.setClickable(false);
-            button.setText("结束");
-            SYS_STATE = true;
         }
     }
 
@@ -727,15 +622,17 @@ public class GetMotionMain extends AppCompatActivity {
                 }
             }
 
-        //Log.i("start",listener[0].toString());
     }
 
     public void stopRecord(){
         stopAll();
     }
+
     ///控件部分++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
 
-
+    /**********************************************************************************/
+    ///其他++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
+    /**********************************************************************************/
     private void stopAll(){
         //关闭监听器，关闭文件
         mLocationManager.removeUpdates(mLocationListener);
@@ -753,26 +650,62 @@ public class GetMotionMain extends AppCompatActivity {
 
     }
 
+    //初始化存储
+    private void initStorage() {
+        //查看储存器是否可用，先看外部
+        if (Environment.MEDIA_MOUNTED.equals(Environment.getExternalStorageState())) {
+            //判断sd卡是否存在
+            File SD = new File("/storage/sdcard1");
+            if(SD.exists())      //如果SD卡存在，则获取跟目录
+            {
+                rootFolder = new File(SD, "MotionRecord");//获取跟目录
+                Log.e("文件夹", "外部SD");
+            }
+            else {
+                //获得外存绝对地址+我们自己的地址
+                String targetDir = Environment.getExternalStorageDirectory().getAbsolutePath() + File.separator + "MotionRecord";
+                rootFolder = new File(targetDir);
+                Log.e("文件夹", "外部");
+            }
+            //创建文件夹
+            if (!rootFolder.exists())
+                rootFolder.mkdirs();
+        } else {
+            //创建内部存储地址
+            rootFolder = new File(mContext.getFilesDir(), "MotionRecord");
+            if (!rootFolder.exists())
+                rootFolder.mkdirs();
+            Log.e("文件夹", "内部");
+        }
+
+        Log.e("文件夹", rootFolder.getAbsolutePath());
+        Toast.makeText(this, "目标将要保存于：" + rootFolder.getAbsolutePath(), Toast.LENGTH_LONG).show();
+
+    }
+    ///其他++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
 
 
+    /**********************************************************************************/
+    ///授权管理++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
+    /**********************************************************************************/
+    private void permissionsCheck()
+    {
+        for (int i = 0; i < PERMISSIONS_EVERY.length; i++) {
+            if (ActivityCompat.checkSelfPermission(this, PERMISSIONS_EVERY[i])
+                != PackageManager.PERMISSION_GRANTED) {
+                if (ActivityCompat.shouldShowRequestPermissionRationale(this, PERMISSIONS_EVERY[i])) {
+                } else {
+                    ActivityCompat.requestPermissions(this, PERMISSIONS_EVERY, i);
+                }
+            }
+        }
 
+    }
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+    }
+
+    ///授权管理++++++++++++++++++++++++++++++++++++++++++++++++++++//
 }
-
-//    // 新线程的函数，暂时不用，还要再改
-////    public class readSensorThread extends Thread {
-////        public void run() {
-////            float X = event.values[0];
-////            float Y = event.values[1];
-////            float Z = event.values[2];
-//////                mTextView.setText(String.format(Locale.CHINESE, textShow, X, Y, Z));
-////            Log.i("数据", String.valueOf(X));
-////            Log.i("监听器回调函数线程", String.valueOf(Thread.currentThread().getId()));
-////            this.yield();
-////        }
-////        public void getEvent(SensorEvent _event){
-////            event = _event;
-////        }
-////        private SensorEvent event;
-////    }
-////    readSensorThread readThread = new readSensorThread();
-//}
