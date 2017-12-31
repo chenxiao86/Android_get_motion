@@ -211,6 +211,7 @@ public class GetMotionMain extends AppCompatActivity {
     public void onPause() {
         closeCamera();
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE); //只许横屏
+        stopAll();
         Log.e("暂停程序","onPause");
         super.onPause();
     }
@@ -325,10 +326,12 @@ public class GetMotionMain extends AppCompatActivity {
             Toast.makeText(GetMotionMain.this, "摄像头开启失败", Toast.LENGTH_SHORT).show();
         }
     };
+
+    //关闭摄像机
     private void closeCamera() {
         try {
             mCameraOpenCloseLock.acquire();
-            closePreviewSession();
+            closeRecordSession();
             if (null != mCameraDevice) {
                 mCameraDevice.close();
                 mCameraDevice = null;
@@ -344,33 +347,8 @@ public class GetMotionMain extends AppCompatActivity {
         }
     }
 
-
-    //开始预览
-    private void startPreview() {
-        try {
-
-            mPreviewBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-            mPreviewBuilder.addTarget(surfaceHolderSurface);
-            mCameraDevice.createCaptureSession(Collections.singletonList(surfaceHolderSurface),
-                    new CameraCaptureSession.StateCallback() {
-
-                        @Override
-                        public void onConfigured(@NonNull CameraCaptureSession session) {
-                            mPreviewSession = session;
-                            updatePreview();
-                        }
-
-                        @Override
-                        public void onConfigureFailed(@NonNull CameraCaptureSession session) {
-                        }
-                    }, childHandler);
-        } catch (CameraAccessException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void updatePreview() {
-        Log.e("预览","启动");
+    //启动摄像
+    private void updateCapture() {
         if (null == mCameraDevice) {
             return;
         }
@@ -385,7 +363,7 @@ public class GetMotionMain extends AppCompatActivity {
             e.printStackTrace();
         }
     }
-
+    //循环摄像的回调函数
     class mCaptureCallback extends CameraCaptureSession.CaptureCallback {
         @Override
         public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result){
@@ -407,15 +385,38 @@ public class GetMotionMain extends AppCompatActivity {
             }
         }
     }
-
-    private void closePreviewSession() {
+    //关闭摄像
+    private void closeRecordSession() {
         if (mPreviewSession != null) {
             mPreviewSession.close();
             mPreviewSession = null;
         }
     }
+    //开始预览
+    private void startPreview() {
+        try {
 
+            mPreviewBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            mPreviewBuilder.addTarget(surfaceHolderSurface);
+            mCameraDevice.createCaptureSession(Collections.singletonList(surfaceHolderSurface),
+                    new CameraCaptureSession.StateCallback() {
 
+                        @Override
+                        public void onConfigured(@NonNull CameraCaptureSession session) {
+                            mPreviewSession = session;
+                            updateCapture();
+                        }
+
+                        @Override
+                        public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+                        }
+                    }, childHandler);
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+    }
+
+    //录像模块参数
     private void setUpMediaRecorder() throws IOException {
 
         mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
@@ -428,16 +429,27 @@ public class GetMotionMain extends AppCompatActivity {
 
         mMediaRecorder.prepare();
     }
+    //相机设置
+    private void captureRequestSet() {
+        // 关闭闪光灯
+        mPreviewBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
+        // 对焦EDOF
+        mPreviewBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_EDOF);
+        // 取消稳像
+        mPreviewBuilder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF);
+        mPreviewBuilder.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF);
+    }
+
+    //开始记录数据
     private void startRecordingCamera() {
 
         try {
             //关闭预览，以及它对应的Surface。打开记录时预览的surface。
-            closePreviewSession();
+            closeRecordSession();
             mSurfaceView.setVisibility(SurfaceView.INVISIBLE);
             mSurfaceView2.setVisibility(SurfaceView.VISIBLE);
 
             mPreviewBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
-
             captureRequestSet();
 
             // Set up Surface for the camera preview
@@ -481,25 +493,24 @@ public class GetMotionMain extends AppCompatActivity {
             }
             mPreviewBuilder.addTarget(recorderSurface);
 
-            // Start a capture session
-            // Once the session starts, we can update the UI and start recording
+            // 开始记录数据
             mCameraDevice.createCaptureSession(Arrays.asList(surfaceHolderSurface2, recorderSurface), new CameraCaptureSession.StateCallback() {
 
                 @Override
                 public void onConfigured(@NonNull CameraCaptureSession cameraCaptureSession) {
                     mPreviewSession = cameraCaptureSession;
-
                     mIsRecordingCamera = true;
+
+                    //如果摄像，则启动摄像编码模块
                     if(RECORD_STATE == RECORD_VIDEO) {
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                // Start recording
                                 mMediaRecorder.start();
                             }
                         });
                     }
-                    updatePreview();
+                    updateCapture();
                 }
 
                 @Override
@@ -511,9 +522,8 @@ public class GetMotionMain extends AppCompatActivity {
         }
     }
 
-
+    //先关闭相机采集
     private void stopRecordingCamera() {
-        //先关闭相机采集
         try {
             mPreviewSession.stopRepeating();
         } catch (CameraAccessException e) {
@@ -526,18 +536,6 @@ public class GetMotionMain extends AppCompatActivity {
             mMediaRecorder.reset();
         }
     }
-
-    private void captureRequestSet() {
-        // 关闭闪光灯
-        mPreviewBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
-        // 对焦EDOF
-        mPreviewBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_EDOF);
-        // 取消稳像
-        mPreviewBuilder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF);
-        mPreviewBuilder.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF);
-    }
-//
-
 
     ///相机部分++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
 
