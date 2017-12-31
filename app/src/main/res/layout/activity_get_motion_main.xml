@@ -6,6 +6,20 @@
     android:layout_height="match_parent"
     tools:context="com.example.getmotion.GetMotionMain">
 
+    <CheckBox
+        android:id="@+id/checkBox2"
+        android:layout_width="80dp"
+        android:layout_height="18dp"
+        android:layout_marginBottom="0dp"
+        android:layout_marginRight="8dp"
+        android:layout_marginTop="0dp"
+        android:onClick="ctrlFormat"
+        android:text="@string/select_box2"
+        app:layout_constraintBottom_toTopOf="@+id/checkBox"
+        app:layout_constraintRight_toLeftOf="@+id/button"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_bias="0.507" />
+
     <TextView
         android:id="@+id/textView3"
         android:layout_width="254dp"
@@ -39,21 +53,21 @@
         app:layout_constraintTop_toTopOf="parent"
         android:layout_marginTop="0dp"
         app:layout_constraintVertical_bias="0.508"
-        app:layout_constraintRight_toLeftOf="@+id/button"
+        app:layout_constraintRight_toLeftOf="@+id/checkBox2"
         android:layout_marginRight="8dp" />
 
     <Button
         android:id="@+id/button"
-        android:layout_width="81dp"
-        android:layout_height="40dp"
-        android:layout_marginBottom="8dp"
+        android:layout_width="63dp"
+        android:layout_height="41dp"
         android:layout_marginRight="8dp"
-        android:layout_marginTop="8dp"
         android:onClick="ctrlRecord"
         android:text="@string/control_button"
-        app:layout_constraintBottom_toTopOf="@+id/checkBox"
         app:layout_constraintRight_toRightOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        android:layout_marginBottom="8dp"
+        app:layout_constraintBottom_toTopOf="@+id/surfaceView2"
+        app:layout_constraintTop_toTopOf="parent"
+        android:layout_marginTop="8dp" />
 
     <TextView
         android:id="@+id/textView1"
@@ -78,8 +92,8 @@
         android:layout_marginBottom="8dp"
         android:layout_marginRight="8dp"
         android:text="@string/select_box"
-        app:layout_constraintBottom_toTopOf="@+id/surfaceView"
-        app:layout_constraintRight_toRightOf="parent" />
+        app:layout_constraintBottom_toTopOf="@+id/surfaceView2"
+        app:layout_constraintRight_toLeftOf="@+id/button" />
 
     <SurfaceView
         android:id="@+id/surfaceView"

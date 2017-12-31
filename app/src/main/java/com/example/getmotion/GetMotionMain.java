@@ -85,6 +85,10 @@ public class GetMotionMain extends AppCompatActivity {
 
     ///参数部分++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
     public static boolean SYS_STATE = false; //系统状态
+    public static int RECORD_VIDEO = 0;
+    public static int RECORD_PICS = 1;
+    public int RECORD_STATE = RECORD_VIDEO;
+
     private SensorManager mSensorManager; //设备管理器
     private Context mContext;
 
@@ -94,12 +98,10 @@ public class GetMotionMain extends AppCompatActivity {
             Manifest.permission.WRITE_EXTERNAL_STORAGE,
             Manifest.permission.CAMERA,
             Manifest.permission.ACCESS_FINE_LOCATION,
-//            Manifest.permission.ACCESS_COURSE_LOCATION,
-//            Manifest.permission.location.gps
     };
 
     //控件参数
-    private CheckBox checkBox;
+    private CheckBox checkBox, checkBox2;
     private Button button;
     private TextView textView1, textView2, textView3, textView4;
     private SurfaceView mSurfaceView, mSurfaceView2;
@@ -119,20 +121,18 @@ public class GetMotionMain extends AppCompatActivity {
 
     //相机
     private CameraManager mCameraManager;//摄像头管理器
-    private Handler childHandler, childHandler2, mainHandler;
+    private Handler childHandler, mainHandler;
     private String mCameraID;//摄像头Id 0 为后  1 为前
     private ImageReader mImageReader;
     private Semaphore mCameraOpenCloseLock = new Semaphore(1);
     private CameraCaptureSession mCameraCaptureSession;
     private CameraDevice mCameraDevice;
     private CameraCaptureSession mPreviewSession;
-    private CameraCaptureSession mCaptureSession;
     private CaptureRequest.Builder mPreviewBuilder;
-    private CaptureRequest mPreviewRequest;
 
     //录像器
     private MediaRecorder mMediaRecorder;
-    private boolean mIsRecordingVideo;
+    private boolean mIsRecordingCamera;
 
 
     //文件读写
@@ -230,7 +230,7 @@ public class GetMotionMain extends AppCompatActivity {
 
     /**********************************************************************************/
     private void initCamera() {
-        mIsRecordingVideo = false;
+        mIsRecordingCamera = false;
 
         //mSurfaceView
         mSurfaceView = (SurfaceView) findViewById(R.id.surfaceView);
@@ -272,14 +272,10 @@ public class GetMotionMain extends AppCompatActivity {
         handlerThread.start();
         childHandler = new Handler(handlerThread.getLooper());
 
-        HandlerThread handlerThread2 = new HandlerThread("Camera2");
-        handlerThread2.start();
-        childHandler2 = new Handler(handlerThread2.getLooper());
 
         mainHandler = new Handler(getMainLooper());
         mCameraID = "" + CameraCharacteristics.LENS_FACING_FRONT;//后摄像头
 //        mCameraID = "" + CameraCharacteristics.LENS_FACING_BACK;//前摄像头
-
 
         //获取摄像头管理
         mCameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
@@ -394,7 +390,7 @@ public class GetMotionMain extends AppCompatActivity {
         @Override
         public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result){
 
-            if (mIsRecordingVideo){
+            if (mIsRecordingCamera){
                 Log.i("时间", String.valueOf(result.get(TotalCaptureResult.SENSOR_TIMESTAMP)));
                 int SENS_TYPE = TYPE_CAM;
                 if (sensData[SENS_TYPE].exists()) {
@@ -432,7 +428,7 @@ public class GetMotionMain extends AppCompatActivity {
 
         mMediaRecorder.prepare();
     }
-    private void startRecordingVideo() {
+    private void startRecordingCamera() {
 
         try {
             //关闭预览，以及它对应的Surface。打开记录时预览的surface。
@@ -440,7 +436,6 @@ public class GetMotionMain extends AppCompatActivity {
             mSurfaceView.setVisibility(SurfaceView.INVISIBLE);
             mSurfaceView2.setVisibility(SurfaceView.VISIBLE);
 
-            setUpMediaRecorder();
             mPreviewBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
 
             captureRequestSet();
@@ -448,8 +443,42 @@ public class GetMotionMain extends AppCompatActivity {
             // Set up Surface for the camera preview
             mPreviewBuilder.addTarget(surfaceHolderSurface2);
 
-            // Set up Surface for the MediaRecorder
-            Surface recorderSurface = mMediaRecorder.getSurface();
+            //surface of recorder(video or pictures)
+            Surface recorderSurface;
+            if(RECORD_STATE == RECORD_VIDEO) {
+                // Set up Surface for the MediaRecorder
+                setUpMediaRecorder();
+                recorderSurface = mMediaRecorder.getSurface();
+            } else {
+                mImageReader = ImageReader.newInstance(720, 1024, ImageFormat.YUV_420_888,1);
+                mImageReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() { //可以在这里处理拍照得到的临时照片 例如，写入本地
+                    @Override
+                    public void onImageAvailable(ImageReader reader) {
+                        if (dataRootFolder.exists()) {
+                            Image image = reader.acquireNextImage();
+                            ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+                            byte[] bytes = new byte[buffer.remaining()];
+                            buffer.get(bytes);//由缓冲区存入字节数组
+                            if (bytes != null) {
+                                File picFile = new File(dataRootFolder, String.valueOf(image.getTimestamp() + ".jpg"));
+                                try {
+                                    BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(picFile));
+                                    bos.write(bytes, 0, bytes.length);
+                                    bos.flush();
+                                    bos.close();
+                                } catch (FileNotFoundException e) {
+                                    e.printStackTrace();
+                                } catch (IOException e) {
+                                    e.printStackTrace();
+                                }
+
+                            }
+                            image.close();
+                        }
+                    }
+                }, childHandler);
+                recorderSurface = mImageReader.getSurface();
+            }
             mPreviewBuilder.addTarget(recorderSurface);
 
             // Start a capture session
@@ -460,14 +489,16 @@ public class GetMotionMain extends AppCompatActivity {
                 public void onConfigured(@NonNull CameraCaptureSession cameraCaptureSession) {
                     mPreviewSession = cameraCaptureSession;
 
-                    mIsRecordingVideo = true;
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            // Start recording
-                            mMediaRecorder.start();
-                        }
-                    });
+                    mIsRecordingCamera = true;
+                    if(RECORD_STATE == RECORD_VIDEO) {
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                // Start recording
+                                mMediaRecorder.start();
+                            }
+                        });
+                    }
                     updatePreview();
                 }
 
@@ -479,17 +510,21 @@ public class GetMotionMain extends AppCompatActivity {
             e.printStackTrace();
         }
     }
-    private void stopRecordingVideo() {
+
+
+    private void stopRecordingCamera() {
         //先关闭相机采集
         try {
             mPreviewSession.stopRepeating();
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
-        // Stop recording
-        mMediaRecorder.stop();
-        mMediaRecorder.reset();
-
+        //如果是正在记录视频就停止视频记录器
+        if (RECORD_STATE == RECORD_VIDEO) {
+            // Stop recording
+            mMediaRecorder.stop();
+            mMediaRecorder.reset();
+        }
     }
 
     private void captureRequestSet() {
@@ -705,6 +740,7 @@ public class GetMotionMain extends AppCompatActivity {
     private void initTools(){
         //取得控件
         checkBox = (CheckBox) findViewById(R.id.checkBox);
+        checkBox2 = (CheckBox) findViewById(R.id.checkBox2);
         button = (Button) findViewById(R.id.button);
         textView1 = (TextView) findViewById(R.id.textView1);
         textView2 = (TextView) findViewById(R.id.textView2);
@@ -725,6 +761,7 @@ public class GetMotionMain extends AppCompatActivity {
             //如果运行中，再按就停止
             stopRecord();
             checkBox.setClickable(true);
+            checkBox2.setClickable(true);
             button.setText("开始");
             SYS_STATE = false;
         }
@@ -733,11 +770,12 @@ public class GetMotionMain extends AppCompatActivity {
             dataRootFolder = new File(rootFolder, dayTime);
 
             if (dataRootFolder.mkdirs()) {
-                    Log.i("文件夹", "成功创建");
-                    startRecord();
-                    checkBox.setClickable(false);
-                    button.setText("结束");
-                    SYS_STATE = true;
+                Log.i("文件夹", "成功创建");
+                startRecord();
+                checkBox.setClickable(false);
+                checkBox2.setClickable(false);
+                button.setText("结束");
+                SYS_STATE = true;
             }
             else {
                 Log.e("文件夹", "创建失败");
@@ -770,7 +808,8 @@ public class GetMotionMain extends AppCompatActivity {
                     e.printStackTrace();
                 }
             }
-        startRecordingVideo();
+        //开启录像
+        startRecordingCamera();
 
     }
 
@@ -778,13 +817,22 @@ public class GetMotionMain extends AppCompatActivity {
         stopAll();
     }
 
+    public void ctrlFormat(View view) {
+        if (!checkBox2.isChecked()){
+            RECORD_STATE = RECORD_VIDEO;
+            checkBox2.setText("视频");
+        } else{
+            RECORD_STATE = RECORD_PICS;
+            checkBox2.setText("图像");
+        }
+    }
     ///控件部分++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
 
     /**********************************************************************************/
     ///其他++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
     /**********************************************************************************/
     private void stopAll(){
-        stopRecordingVideo();
+        stopRecordingCamera();
         // 释放Camera资源
         if (null != mCameraDevice) {
             mCameraDevice.close();
