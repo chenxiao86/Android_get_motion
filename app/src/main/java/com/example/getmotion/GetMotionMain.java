@@ -230,14 +230,14 @@ public class GetMotionMain extends AppCompatActivity {
 
     /**********************************************************************************/
     private void initCamera() {
-
+        mIsRecordingVideo = false;
 
         //mSurfaceView
         mSurfaceView = (SurfaceView) findViewById(R.id.surfaceView);
         mSurfaceHolder = mSurfaceView.getHolder();
         mSurfaceHolder.setKeepScreenOn(true);
         surfaceHolderSurface = mSurfaceHolder.getSurface();
-
+//        mSurfaceView2.setVisibility(SurfaceView.VISIBLE);
         //mSurfaceView添加回调，预览
         mSurfaceHolder.addCallback(new SurfaceHolder.Callback() {
             @Override
@@ -252,13 +252,15 @@ public class GetMotionMain extends AppCompatActivity {
 
             @Override
             public void surfaceDestroyed(SurfaceHolder holder) { //SurfaceView销毁
-                // 释放Camera资源
-                if (null != mCameraDevice) {
-                    mCameraDevice.close();
-                    GetMotionMain.this.mCameraDevice = null;
-                }
+
             }
         });
+
+//        //mSurfaceView
+        mSurfaceView2 = (SurfaceView) findViewById(R.id.surfaceView2);
+        mSurfaceHolder2 = mSurfaceView2.getHolder();
+        surfaceHolderSurface2 = mSurfaceHolder2.getSurface();
+        mSurfaceView2.setVisibility(SurfaceView.INVISIBLE);
     }
 
     //初始化Camera2
@@ -305,6 +307,7 @@ public class GetMotionMain extends AppCompatActivity {
         @Override
         public void onOpened(CameraDevice camera) {//打开摄像头
             mCameraDevice = camera;
+            mAvailable[TYPE_CAM] = true;
             //开启预览(自己写的函数)
             startPreview();
             mCameraOpenCloseLock.release();
@@ -349,7 +352,6 @@ public class GetMotionMain extends AppCompatActivity {
     //开始预览
     private void startPreview() {
         try {
-            closePreviewSession();
 
             mPreviewBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             mPreviewBuilder.addTarget(surfaceHolderSurface);
@@ -391,10 +393,22 @@ public class GetMotionMain extends AppCompatActivity {
     class mCaptureCallback extends CameraCaptureSession.CaptureCallback {
         @Override
         public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result){
-            Log.i("时间", String.valueOf(result.get(TotalCaptureResult.SENSOR_TIMESTAMP)));
-//            Thread a = Thread.currentThread();
-//            Log.i("的线程", String.valueOf(a.getId()));
-//            Log.i("RS时间", String.valueOf(result.get(TotalCaptureResult.SENSOR_ROLLING_SHUTTER_SKEW)));
+
+            if (mIsRecordingVideo){
+                Log.i("时间", String.valueOf(result.get(TotalCaptureResult.SENSOR_TIMESTAMP)));
+                int SENS_TYPE = TYPE_CAM;
+                if (sensData[SENS_TYPE].exists()) {
+                    try {
+                        mFileWriter[SENS_TYPE].write( String.format("%18d, %18d, %18d\n",
+                                result.get(TotalCaptureResult.SENSOR_TIMESTAMP),
+                                result.get(TotalCaptureResult.SENSOR_EXPOSURE_TIME),
+                                result.get(TotalCaptureResult.SENSOR_ROLLING_SHUTTER_SKEW)
+                        ) );
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
         }
     }
 
@@ -411,25 +425,28 @@ public class GetMotionMain extends AppCompatActivity {
         mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
         mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
         mMediaRecorder.setOutputFile(dataRootFolder.getAbsolutePath() + "/Video.mp4");
-        mMediaRecorder.setVideoEncodingBitRate(30000000);
-        mMediaRecorder.setVideoFrameRate(30);
+        mMediaRecorder.setVideoEncodingBitRate(10000000);
+        mMediaRecorder.setVideoFrameRate(25);
         mMediaRecorder.setVideoSize(1280, 720);
         mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
 
         mMediaRecorder.prepare();
     }
     private void startRecordingVideo() {
-//        startPreview();
 
         try {
+            //关闭预览，以及它对应的Surface。打开记录时预览的surface。
             closePreviewSession();
+            mSurfaceView.setVisibility(SurfaceView.INVISIBLE);
+            mSurfaceView2.setVisibility(SurfaceView.VISIBLE);
+
             setUpMediaRecorder();
             mPreviewBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
 
             captureRequestSet();
 
             // Set up Surface for the camera preview
-            mPreviewBuilder.addTarget(surfaceHolderSurface);
+            mPreviewBuilder.addTarget(surfaceHolderSurface2);
 
             // Set up Surface for the MediaRecorder
             Surface recorderSurface = mMediaRecorder.getSurface();
@@ -437,18 +454,16 @@ public class GetMotionMain extends AppCompatActivity {
 
             // Start a capture session
             // Once the session starts, we can update the UI and start recording
-            mCameraDevice.createCaptureSession(Arrays.asList(surfaceHolderSurface, recorderSurface), new CameraCaptureSession.StateCallback() {
+            mCameraDevice.createCaptureSession(Arrays.asList(surfaceHolderSurface2, recorderSurface), new CameraCaptureSession.StateCallback() {
 
                 @Override
                 public void onConfigured(@NonNull CameraCaptureSession cameraCaptureSession) {
                     mPreviewSession = cameraCaptureSession;
 
+                    mIsRecordingVideo = true;
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            // UI
-                            mIsRecordingVideo = true;
-
                             // Start recording
                             mMediaRecorder.start();
                         }
@@ -465,13 +480,16 @@ public class GetMotionMain extends AppCompatActivity {
         }
     }
     private void stopRecordingVideo() {
-        // UI
-        mIsRecordingVideo = false;
+        //先关闭相机采集
+        try {
+            mPreviewSession.stopRepeating();
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
         // Stop recording
         mMediaRecorder.stop();
         mMediaRecorder.reset();
 
-        startPreview();
     }
 
     private void captureRequestSet() {
@@ -502,6 +520,7 @@ public class GetMotionMain extends AppCompatActivity {
         }
         mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER,
                 0, 0, mLocationListener);
+        mAvailable[TYPE_GPS] = true;
     }
 
     class LocationListenerNew implements LocationListener {
@@ -712,20 +731,13 @@ public class GetMotionMain extends AppCompatActivity {
         else{
             //如果没运行，再按就开始，先建立文件夹
             dataRootFolder = new File(rootFolder, dayTime);
-            dataRootFolderPics = new File(dataRootFolder, "Cam");
 
             if (dataRootFolder.mkdirs()) {
-                if (dataRootFolderPics.mkdirs()) {
                     Log.i("文件夹", "成功创建");
                     startRecord();
                     checkBox.setClickable(false);
                     button.setText("结束");
                     SYS_STATE = true;
-                }
-                else
-                {
-                    Toast.makeText(this, "创建文件夹失败", Toast.LENGTH_LONG).show();
-                }
             }
             else {
                 Log.e("文件夹", "创建失败");
@@ -773,6 +785,12 @@ public class GetMotionMain extends AppCompatActivity {
     /**********************************************************************************/
     private void stopAll(){
         stopRecordingVideo();
+        // 释放Camera资源
+        if (null != mCameraDevice) {
+            mCameraDevice.close();
+            GetMotionMain.this.mCameraDevice = null;
+        }
+
         //关闭监听器，关闭文件
         mLocationManager.removeUpdates(mLocationListener);
         for (int SENS_TYPE = 0; SENS_TYPE<3; SENS_TYPE++) {
