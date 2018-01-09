@@ -27,6 +27,7 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.TotalCaptureResult;
+import android.hardware.camera2.params.StreamConfigurationMap;
 import android.location.GnssStatus;
 import android.location.GpsSatellite;
 import android.location.GpsStatus;
@@ -133,6 +134,7 @@ public class GetMotionMain extends AppCompatActivity {
     //录像器
     private MediaRecorder mMediaRecorder;
     private boolean mIsRecordingCamera;
+    private Size mVideoSize;
 
 
     //文件读写
@@ -289,6 +291,13 @@ public class GetMotionMain extends AppCompatActivity {
             }
             //打开摄像头
             mCameraManager.openCamera(mCameraID, stateCallback, mainHandler);
+            CameraCharacteristics characteristics = mCameraManager.getCameraCharacteristics(mCameraID);
+            StreamConfigurationMap map = characteristics
+                    .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+            mVideoSize = chooseVideoSize(map.getOutputSizes(MediaRecorder.class));
+            Log.e("Video size", String.valueOf(mVideoSize.getWidth()) + "*" + String.valueOf(mVideoSize.getHeight()));
+
+
             //设定记录器
             mMediaRecorder = new MediaRecorder();
 
@@ -297,6 +306,14 @@ public class GetMotionMain extends AppCompatActivity {
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
+    }
+    private static Size chooseVideoSize(Size[] choices) {
+        for (Size size : choices) {
+            if (size.getWidth() == size.getHeight() * 4 / 3 && size.getWidth() <= 1580) {
+                return size;
+            }
+        }
+        return choices[choices.length - 1];
     }
 
     //摄像头创建监听
@@ -364,7 +381,7 @@ public class GetMotionMain extends AppCompatActivity {
         }
     }
     //循环摄像的回调函数
-    class mCaptureCallback extends CameraCaptureSession.CaptureCallback {
+    private class mCaptureCallback extends CameraCaptureSession.CaptureCallback {
         @Override
         public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result){
 
@@ -373,11 +390,15 @@ public class GetMotionMain extends AppCompatActivity {
                 int SENS_TYPE = TYPE_CAM;
                 if (sensData[SENS_TYPE].exists()) {
                     try {
-                        mFileWriter[SENS_TYPE].write( String.format("%18d, %18d, %18d\n",
-                                result.get(TotalCaptureResult.SENSOR_TIMESTAMP),
-                                result.get(TotalCaptureResult.SENSOR_EXPOSURE_TIME),
-                                result.get(TotalCaptureResult.SENSOR_ROLLING_SHUTTER_SKEW)
-                        ) );
+//                        mFileWriter[SENS_TYPE].write( String.format("%18$d, %18$d, %18$d\n",
+//                                result.get(TotalCaptureResult.SENSOR_TIMESTAMP),
+//                                result.get(TotalCaptureResult.SENSOR_EXPOSURE_TIME),
+//                                result.get(TotalCaptureResult.SENSOR_ROLLING_SHUTTER_SKEW)
+//                        ) );
+                        mFileWriter[SENS_TYPE].write( String.valueOf(result.get(TotalCaptureResult.SENSOR_TIMESTAMP)) + "," +
+                                String.valueOf(result.get(TotalCaptureResult.SENSOR_EXPOSURE_TIME)) + "," +
+                                String.valueOf(result.get(TotalCaptureResult.SENSOR_ROLLING_SHUTTER_SKEW))  + "\n"
+                        );
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
@@ -424,7 +445,7 @@ public class GetMotionMain extends AppCompatActivity {
         mMediaRecorder.setOutputFile(dataRootFolder.getAbsolutePath() + "/Video.mp4");
         mMediaRecorder.setVideoEncodingBitRate(10000000);
         mMediaRecorder.setVideoFrameRate(25);
-        mMediaRecorder.setVideoSize(1280, 720);
+        mMediaRecorder.setVideoSize(mVideoSize.getWidth(), mVideoSize.getHeight());
         mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
 
         mMediaRecorder.prepare();
@@ -433,8 +454,10 @@ public class GetMotionMain extends AppCompatActivity {
     private void captureRequestSet() {
         // 关闭闪光灯
         mPreviewBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
-        // 对焦EDOF
-        mPreviewBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_EDOF);
+        // 对焦EDOF，或者10m（华为机型）
+//        mPreviewBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_EDOF);
+        mPreviewBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AE_MODE_OFF);
+        mPreviewBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.1f);
         // 取消稳像
         mPreviewBuilder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF);
         mPreviewBuilder.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF);
@@ -446,14 +469,21 @@ public class GetMotionMain extends AppCompatActivity {
         try {
             //关闭预览，以及它对应的Surface。打开记录时预览的surface。
             closeRecordSession();
+
+            mPreviewBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
+
+            Toast.makeText(this, "可能要等一下", Toast.LENGTH_LONG).show();
+            Thread.sleep(1000);
+
+
             mSurfaceView.setVisibility(SurfaceView.INVISIBLE);
             mSurfaceView2.setVisibility(SurfaceView.VISIBLE);
 
-            mPreviewBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
             captureRequestSet();
 
             // Set up Surface for the camera preview
             mPreviewBuilder.addTarget(surfaceHolderSurface2);
+
 
             //surface of recorder(video or pictures)
             Surface recorderSurface;
@@ -462,7 +492,7 @@ public class GetMotionMain extends AppCompatActivity {
                 setUpMediaRecorder();
                 recorderSurface = mMediaRecorder.getSurface();
             } else {
-                mImageReader = ImageReader.newInstance(720, 1024, ImageFormat.YUV_420_888,1);
+                mImageReader = ImageReader.newInstance(mVideoSize.getHeight(), mVideoSize.getWidth(), ImageFormat.YUV_420_888,1);
                 mImageReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() { //可以在这里处理拍照得到的临时照片 例如，写入本地
                     @Override
                     public void onImageAvailable(ImageReader reader) {
@@ -472,7 +502,7 @@ public class GetMotionMain extends AppCompatActivity {
                             byte[] bytes = new byte[buffer.remaining()];
                             buffer.get(bytes);//由缓冲区存入字节数组
                             if (bytes != null) {
-                                File picFile = new File(dataRootFolder, String.valueOf(image.getTimestamp() + ".jpg"));
+                                File picFile = new File(dataRootFolder, String.valueOf(image.getTimestamp()) + ".jpg");
                                 try {
                                     BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(picFile));
                                     bos.write(bytes, 0, bytes.length);
@@ -518,6 +548,8 @@ public class GetMotionMain extends AppCompatActivity {
                 }
             }, childHandler);
         } catch (CameraAccessException | IOException e) {
+            e.printStackTrace();
+        } catch (InterruptedException e) {
             e.printStackTrace();
         }
     }
@@ -578,15 +610,19 @@ public class GetMotionMain extends AppCompatActivity {
             Log.i("GPS方向", String.valueOf(brg));
             Log.i("GPS精度", String.valueOf(acc));//水平精度
             Log.i("GPS时间", String.valueOf(time));
-            textView4.setText(String.format("%0$.2f, %0$.2f, %0$.2f, %0$.2f",
-                    lon, lat, alt, acc));
+//            textView4.setText(String.format("%0$.2f, %0$.2f, %0$.2f, %0$.2f",
+//                    lon, lat, alt, acc));
+            textView4.setText(String.format("%0$.2f,",lon) + String.format("%0$.2f,",lat) + String.format("%0$.2f,",alt) + String.format("%0$.2f,",acc));
 
             //只有系统运行，以及文件存在的情况下才记录
             if ((sensData[SENS_TYPE] == null) || !SYS_STATE) return;
             if (sensData[SENS_TYPE].exists()) {
                 try {
-                    mFileWriter[SENS_TYPE].write(String.format("%18d, %0$.9f, %0$.9f, %0$.9f, %0$.3f, %0$.3f, %0$.3f\n",
-                            time, lon, lat, alt, acc, spd, brg));
+//                    mFileWriter[SENS_TYPE].write(String.format("%18d, %0$.9f, %0$.9f, %0$.9f, %0$.3f, %0$.3f, %0$.3f\n",
+//                            time, lon, lat, alt, acc, spd, brg));
+                    mFileWriter[SENS_TYPE].write(String.valueOf(time) + "," + String.format("%0$.9f,", lon) + String.format("%0$.9f,", lat) + String.format("%0$.9f,", alt)
+                            + String.format("%0$.3f,", acc) + String.format("%0$.3f,", spd) + String.format("%0$.3f\n", brg)
+                    );
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
@@ -686,15 +722,16 @@ public class GetMotionMain extends AppCompatActivity {
             float Y = event.values[1];
             float Z = event.values[2];
             long T = event.timestamp;
-            mTextView.setText(String.format(Locale.CHINESE, textShow, X, Y, Z));
+//            mTextView.setText(String.format(Locale.CHINESE, textShow, X, Y, Z));
+            mTextView.setText(String.format("%0$.2f,", X) + String.format("%0$.2f,", Y) + String.format("%0$.2f,", Z));
             try {
                 //在低版本的系统上，这里会出错，可能要分开写进去才行
-                mFileWriter[SENS_TYPE].write(String.format("%18d, %0$.5f, %0$.5f, %0$.5f\n", T, X, Y, Z));
+//                mFileWriter[SENS_TYPE].write(String.format("%18d, %0$.5f, %0$.5f, %0$.5f\n", T, X, Y, Z));
+                mFileWriter[SENS_TYPE].write(String.valueOf(T) + "," + String.format("%0$.5f,", X) + String.format("%0$.5f,", Y) + String.format("%0$.5f\n", Z));
             } catch (IOException e) {
                 e.printStackTrace();
                 Log.e("记录", "出错");
             }
-            //Log.i("记录", String.valueOf(SENS_TYPE));
         }
 
         @Override
@@ -814,21 +851,6 @@ public class GetMotionMain extends AppCompatActivity {
     public void stopRecord(){
         stopAll();
     }
-
-    public void ctrlFormat(View view) {
-        if (!checkBox2.isChecked()){
-            RECORD_STATE = RECORD_VIDEO;
-            checkBox2.setText("视频");
-        } else{
-            RECORD_STATE = RECORD_PICS;
-            checkBox2.setText("图像");
-        }
-    }
-    ///控件部分++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
-
-    /**********************************************************************************/
-    ///其他++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
-    /**********************************************************************************/
     private void stopAll(){
         stopRecordingCamera();
         // 释放Camera资源
@@ -852,6 +874,23 @@ public class GetMotionMain extends AppCompatActivity {
         }
 
     }
+
+
+    public void ctrlFormat(View view) {
+        if (!checkBox2.isChecked()){
+            RECORD_STATE = RECORD_VIDEO;
+            checkBox2.setText("视频");
+        } else{
+            RECORD_STATE = RECORD_PICS;
+            checkBox2.setText("图像");
+        }
+    }
+    ///控件部分++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
+
+    /**********************************************************************************/
+    ///其他++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
+    /**********************************************************************************/
+
 
     //初始化存储
     private void initStorage() {

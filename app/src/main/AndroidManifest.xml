@@ -5,12 +5,15 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.CAMERA" />
+
     <uses-feature android:name="android.hardware.camera" />
+
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COURSE_LOCATION" />
-    <uses-feature android:name="android.hardware.location.gps" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <uses-feature android:name="android.hardware.location.gps" />
+
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:allowBackup="true"
@@ -19,16 +22,21 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
-
-        <activity android:name=".GetMotionMain"
-            android:screenOrientation="landscape"
-            android:configChanges="keyboard|keyboardHidden|orientation|touchscreen|uiMode|navigation|screenSize">
+        <activity
+            android:name=".GetMotionMain"
+            android:configChanges="keyboard|keyboardHidden|orientation|touchscreen|uiMode|navigation|screenSize"
+            android:screenOrientation="landscape">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".GetMotionBackground"
+            android:enabled="true"
+            android:exported="true"></service>
     </application>
 
 </manifest>
