@@ -4,6 +4,7 @@ import android.Manifest;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
@@ -89,6 +90,15 @@ public class GetMotionMain extends AppCompatActivity {
     public static int RECORD_VIDEO = 0;
     public static int RECORD_PICS = 1;
     public int RECORD_STATE = RECORD_VIDEO;
+
+    public static int RECORD_VIDEO_False = 0;
+    public static int RECORD_VIDEO_True = 1;
+    public int RECORD_VIDEO_STATE = RECORD_VIDEO_True;
+
+    public static int CAM_FRONT = 0;
+    public static int CAM_BACK = 1;
+    public static int CAM_NOT_SELECTED = -1;
+    public int CAM_NUM = CAM_NOT_SELECTED;
 
     private SensorManager mSensorManager; //设备管理器
     private Context mContext;
@@ -189,9 +199,26 @@ public class GetMotionMain extends AppCompatActivity {
         //GPS信号监听
         initGPS();
 
-        //相机设置
-        initCamera();
+//        //相机设置
+//        initCamera();
+        new AlertDialog.Builder(this)
+                .setTitle("请选择")
+                .setIcon(android.R.drawable.ic_dialog_info)
+                .setSingleChoiceItems(new String[] {"无","后置摄像头","前置摄像头"}, 0,
+                        new DialogInterface.OnClickListener() {
 
+                            public void onClick(DialogInterface dialog, int which) {
+                                CAM_NUM = which-1;
+                                closeCamera();
+                                openCamera();
+                                Toast.makeText(GetMotionMain.this, String.valueOf(CAM_NUM), Toast.LENGTH_SHORT).show();
+                                dialog.dismiss();
+                            }
+                        }
+                )
+                .setNegativeButton("取消", null)
+                .show();
+        initCamera();
     }
 
 
@@ -277,8 +304,10 @@ public class GetMotionMain extends AppCompatActivity {
 
 
         mainHandler = new Handler(getMainLooper());
-        mCameraID = "" + CameraCharacteristics.LENS_FACING_FRONT;//后摄像头
-//        mCameraID = "" + CameraCharacteristics.LENS_FACING_BACK;//前摄像头
+        if(CAM_NUM != CAM_BACK )
+            mCameraID = "" + CameraCharacteristics.LENS_FACING_FRONT;//后摄像头
+        else
+            mCameraID = "" + CameraCharacteristics.LENS_FACING_BACK;//前摄像头
 
         //获取摄像头管理
         mCameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
@@ -387,6 +416,7 @@ public class GetMotionMain extends AppCompatActivity {
 
             if (mIsRecordingCamera){
                 Log.i("时间", String.valueOf(result.get(TotalCaptureResult.SENSOR_TIMESTAMP)));
+                long TimeSystem = System.currentTimeMillis();
                 int SENS_TYPE = TYPE_CAM;
                 if (sensData[SENS_TYPE].exists()) {
                     try {
@@ -397,7 +427,7 @@ public class GetMotionMain extends AppCompatActivity {
 //                        ) );
                         mFileWriter[SENS_TYPE].write( String.valueOf(result.get(TotalCaptureResult.SENSOR_TIMESTAMP)) + "," +
                                 String.valueOf(result.get(TotalCaptureResult.SENSOR_EXPOSURE_TIME)) + "," +
-                                String.valueOf(result.get(TotalCaptureResult.SENSOR_ROLLING_SHUTTER_SKEW))  + "\n"
+                                String.valueOf(result.get(TotalCaptureResult.SENSOR_ROLLING_SHUTTER_SKEW))  + "," + String.valueOf(TimeSystem) + "\n"
                         );
                     } catch (IOException e) {
                         e.printStackTrace();
@@ -602,6 +632,7 @@ public class GetMotionMain extends AppCompatActivity {
             float acc = location.getAccuracy();//水平精度
 //            float acc_ver = location.getVerticalAccuracyMeters();
             long time = location.getTime();
+            long TimeSystem = System.currentTimeMillis();
 
             Log.i("GPS经度", String.valueOf(lon));
             Log.i("GPS纬度", String.valueOf(lat));
@@ -621,7 +652,7 @@ public class GetMotionMain extends AppCompatActivity {
 //                    mFileWriter[SENS_TYPE].write(String.format("%18d, %0$.9f, %0$.9f, %0$.9f, %0$.3f, %0$.3f, %0$.3f\n",
 //                            time, lon, lat, alt, acc, spd, brg));
                     mFileWriter[SENS_TYPE].write(String.valueOf(time) + "," + String.format("%0$.9f,", lon) + String.format("%0$.9f,", lat) + String.format("%0$.9f,", alt)
-                            + String.format("%0$.3f,", acc) + String.format("%0$.3f,", spd) + String.format("%0$.3f\n", brg)
+                            + String.format("%0$.3f,", acc) + String.format("%0$.3f,", spd) + String.format("%0$.3f", brg) + "," + String.valueOf(TimeSystem) + "\n"
                     );
                 } catch (IOException e) {
                     e.printStackTrace();
@@ -722,12 +753,14 @@ public class GetMotionMain extends AppCompatActivity {
             float Y = event.values[1];
             float Z = event.values[2];
             long T = event.timestamp;
+            long TimeSystem = System.currentTimeMillis();
 //            mTextView.setText(String.format(Locale.CHINESE, textShow, X, Y, Z));
             mTextView.setText(String.format("%0$.2f,", X) + String.format("%0$.2f,", Y) + String.format("%0$.2f,", Z));
             try {
                 //在低版本的系统上，这里会出错，可能要分开写进去才行
 //                mFileWriter[SENS_TYPE].write(String.format("%18d, %0$.5f, %0$.5f, %0$.5f\n", T, X, Y, Z));
-                mFileWriter[SENS_TYPE].write(String.valueOf(T) + "," + String.format("%0$.5f,", X) + String.format("%0$.5f,", Y) + String.format("%0$.5f\n", Z));
+                mFileWriter[SENS_TYPE].write(String.valueOf(T) + "," + String.format("%0$.5f,", X) +
+                        String.format("%0$.5f,", Y) + String.format("%0$.5f", Z) + "," + String.valueOf(TimeSystem)  + "\n");
             } catch (IOException e) {
                 e.printStackTrace();
                 Log.e("记录", "出错");
@@ -827,7 +860,7 @@ public class GetMotionMain extends AppCompatActivity {
         for (int SENS_TYPE = 0; SENS_TYPE<3; SENS_TYPE++)
             if(mAvailable[SENS_TYPE]) {
                 //注册sensor监听器
-                mSensorManager.registerListener(listener[SENS_TYPE], mSensors[SENS_TYPE], SensorManager.SENSOR_DELAY_GAME);
+                mSensorManager.registerListener(listener[SENS_TYPE], mSensors[SENS_TYPE], SensorManager.SENSOR_DELAY_FASTEST);
             }
 
         //G文件
@@ -844,7 +877,8 @@ public class GetMotionMain extends AppCompatActivity {
                 }
             }
         //开启录像
-        startRecordingCamera();
+        if(RECORD_VIDEO_STATE == RECORD_VIDEO_True)
+            startRecordingCamera();
 
     }
 
@@ -852,7 +886,8 @@ public class GetMotionMain extends AppCompatActivity {
         stopAll();
     }
     private void stopAll(){
-        stopRecordingCamera();
+        if(RECORD_VIDEO_STATE == RECORD_VIDEO_True)
+            stopRecordingCamera();
         // 释放Camera资源
         if (null != mCameraDevice) {
             mCameraDevice.close();
@@ -883,6 +918,16 @@ public class GetMotionMain extends AppCompatActivity {
         } else{
             RECORD_STATE = RECORD_PICS;
             checkBox2.setText("图像");
+        }
+    }
+
+    public void ctrlVideo(View view) {
+        if (!checkBox.isChecked()){
+            RECORD_VIDEO_STATE = RECORD_VIDEO_True;
+            checkBox.setText("录相机");
+        } else{
+            RECORD_VIDEO_STATE = RECORD_VIDEO_False;
+            checkBox.setText("不录相机");
         }
     }
     ///控件部分++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++//
